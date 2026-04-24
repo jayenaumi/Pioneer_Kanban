@@ -1,0 +1,30 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GarmentTrack Pro</title>
+    <link rel="manifest" href="/manifest.json">
+    <style>
+      /* Clean up internal html5-qrcode UI and ensure responsive video */
+      #qr-reader-internal-context video {
+        width: 100% !important;
+        height: 100% !important;
+        object-fit: cover !important;
+        border-radius: 2rem !important;
+      }
+      #qr-reader-internal-context img {
+        display: none !important;
+      }
+      #qr-reader-internal-context button {
+        display: none !important;
+      }
+    </style>
+    <link rel="stylesheet" href="/index.css">
+  </head>
+  <body class="bg-gray-50">
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
