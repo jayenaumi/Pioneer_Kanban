@@ -181,7 +181,7 @@ const Auth: React.FC<AuthProps> = ({ onSuccess }) => {
               initial={{ opacity: 0, scale: 0.95, y: 40 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 40 }}
-              className="relative w-full max-w-md bg-white rounded-[2.5rem] shadow-3xl overflow-hidden border border-slate-100"
+              className="relative w-full max-w-sm bg-white rounded-[2.5rem] shadow-3xl overflow-hidden border border-slate-100"
             >
               {/* Modal Header */}
               <div className="relative p-8 bg-slate-50 border-b border-slate-100">

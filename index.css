@@ -45,6 +45,32 @@
       padding: 0 !important;
       margin: 0 !important;
     }
+    .print-only {
+      display: block !important;
+    }
+    .pcs-qr-card {
+      width: 2cm !important;
+      height: 2cm !important;
+      padding: 0 !important;
+      margin: 2px !important;
+      border: 1px solid #eee !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      box-shadow: none !important;
+      float: left !important;
+    }
+    .pcs-qr-card svg {
+      width: 1.8cm !important;
+      height: 1.8cm !important;
+    }
+    #qr-bundles-container {
+      display: block !important;
+      width: 100% !important;
+    }
+    .bg-white {
+      background-color: white !important;
+    }
   }
 }
 

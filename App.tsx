@@ -38,6 +38,7 @@ import {
   Plus,
   Database,
   Mail,
+  Printer,
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
@@ -348,7 +349,8 @@ const App: React.FC = () => {
           size,
           po_qty: poQty,
           bundle_qty: 1,
-          qrData
+          qrData,
+          isPcsQR: true
         });
       }
     });
@@ -405,7 +407,8 @@ const App: React.FC = () => {
             line: selectedTable,
             cutting_line: selectedTable,
             created_at: now.toISOString(),
-            factory_name: user?.user_metadata?.factory
+            factory_name: user?.user_metadata?.factory,
+            user_id: user?.id
           });
 
           newBundles.push({
@@ -599,19 +602,6 @@ const App: React.FC = () => {
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (userFactory) {
-        if (userFactory === 'Maxcom International (BD) Limited') {
-          // For Maxcom, show their data AND any legacy data (null)
-          ordersQuery = ordersQuery.or(`factory_name.eq."${userFactory}",factory_name.is.null`);
-          rejectionsQuery = rejectionsQuery.or(`factory_name.eq."${userFactory}",factory_name.is.null`);
-          orderInfoQuery = orderInfoQuery.or(`factory_name.eq."${userFactory}",factory_name.is.null`);
-        } else {
-          ordersQuery = ordersQuery.eq('factory_name', userFactory);
-          rejectionsQuery = rejectionsQuery.eq('factory_name', userFactory);
-          orderInfoQuery = orderInfoQuery.eq('factory_name', userFactory);
-        }
-      }
-
       const { data: orders, error: ordersError } = await ordersQuery;
       const { data: rejections, error: rejectionsError } = await rejectionsQuery;
       const { data: orderInfo, error: orderInfoError } = await orderInfoQuery;
@@ -776,6 +766,7 @@ const App: React.FC = () => {
       const { error } = await supabase
         .from('order_info')
         .insert([{
+          user_id: user.id,
           buyer,
           style,
           po,
@@ -1042,19 +1033,11 @@ const App: React.FC = () => {
 
     try {
       // 1. Fetch existing order to check sequence and get current rejection totals
-      const userFactory = user?.user_metadata?.factory;
-      let query = supabase
+      const { data: existing, error: fetchErr } = await supabase
         .from('orders')
         .select('*')
-        .eq('bundle_id', bundleId);
-
-      if (userFactory === 'Maxcom International (BD) Limited') {
-        query = query.or(`factory_name.eq."${userFactory}",factory_name.is.null`);
-      } else {
-        query = query.eq('factory_name', userFactory || '');
-      }
-
-      const { data: existing, error: fetchErr } = await query.maybeSingle();
+        .eq('bundle_id', bundleId)
+        .maybeSingle();
 
       if (fetchErr) throw fetchErr;
       
@@ -1111,6 +1094,7 @@ const App: React.FC = () => {
 
       // 2. Prepare Payload for Orders (Summary)
       const payload: any = {
+        user_id: user.id,
         bundle_id: bundleId,
         buyer: formData.buyer || 'TBA',
         style: formData.style,
@@ -1132,6 +1116,7 @@ const App: React.FC = () => {
         const { error: logErr } = await supabase
           .from('rejection_logs')
           .insert([{
+            user_id: user.id,
             bundle_id: bundleId,
             buyer: formData.buyer || 'TBA',
             style: formData.style,
@@ -1213,18 +1198,15 @@ const App: React.FC = () => {
         }
         setScanStatus({ message: 'Wiping database...', type: 'warning' });
         try {
-          const userFactory = user?.user_metadata?.factory;
-          if (!userFactory) throw new Error("No factory assigned to user.");
-
           const { error: error1 } = await supabase
             .from('orders')
             .delete()
-            .eq('factory_name', userFactory);
+            .not('id', 'is', null);
 
           const { error: error2 } = await supabase
             .from('rejection_logs')
             .delete()
-            .eq('factory_name', userFactory);
+            .not('id', 'is', null);
 
           if (error1) throw error1;
           if (error2) throw error2;
@@ -1269,19 +1251,10 @@ const App: React.FC = () => {
         }
         setScanStatus({ message: 'Deleting record...', type: 'warning' });
         try {
-          const userFactory = user?.user_metadata?.factory;
-          let query = supabase
+          const { error } = await supabase
             .from('orders')
             .update({ [col]: 0 })
             .eq('bundle_id', bundleId);
-          
-          if (userFactory === 'Maxcom International (BD) Limited') {
-            query = query.or(`factory_name.eq."${userFactory}",factory_name.is.null`);
-          } else {
-            query = query.eq('factory_name', userFactory || '');
-          }
-
-          const { error } = await query;
 
           if (error) throw error;
           
@@ -1323,19 +1296,10 @@ const App: React.FC = () => {
           const existing = dbOrders.find(o => o.bundle_id === log.bundle_id);
           if (existing) {
             const newTotal = Math.max(0, (existing.total_rejections || 0) - (log.rejections_qty || 0));
-            const userFactory = user?.user_metadata?.factory;
-            let query = supabase
+            const { error: updateErr } = await supabase
               .from('orders')
               .update({ total_rejections: newTotal })
               .eq('bundle_id', log.bundle_id);
-            
-            if (userFactory === 'Maxcom International (BD) Limited') {
-              query = query.or(`factory_name.eq."${userFactory}",factory_name.is.null`);
-            } else {
-              query = query.eq('factory_name', userFactory || '');
-            }
-
-            const { error: updateErr } = await query;
             
             if (updateErr) throw updateErr;
           }
@@ -1633,11 +1597,6 @@ const App: React.FC = () => {
   };
 
   const dashboardStats = useMemo(() => {
-    const startDate = new Date(dashboardStartDate);
-    const endDate = new Date(dashboardEndDate);
-    const diffTime = Math.abs(endDate.getTime() - startDate.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-
     const stats = {
       cutting: { output: 0, input: 0, rejections: 0 },
       sewing: { output: 0, input: 0, rejections: 0 },
@@ -1646,7 +1605,20 @@ const App: React.FC = () => {
       totalRejections: 0
     };
 
+    const totalWip = {
+      cutting: 0,
+      sewing: 0,
+      wash: 0,
+      finishing: 0
+    };
+
     dbOrders.forEach(order => {
+      // Total WIP is always global and doesn't depend on selected date range
+      totalWip.cutting += ((order.cutting_in || 0) - (order.cutting_out || 0));
+      totalWip.sewing += ((order.sew_in || 0) - (order.sew_out || 0));
+      totalWip.wash += ((order.wash_in || 0) - (order.wash_out || 0));
+      totalWip.finishing += ((order.fin_in || 0) - (order.fin_out || 0));
+
       const orderDate = order.created_at ? new Date(order.created_at).toLocaleDateString('en-CA') : null;
       if (orderDate && orderDate >= dashboardStartDate && orderDate <= dashboardEndDate) {
         stats.cutting.input += (order.cutting_in || 0);
@@ -1666,14 +1638,13 @@ const App: React.FC = () => {
       return rejDate && rejDate >= dashboardStartDate && rejDate <= dashboardEndDate;
     });
 
-    const calcWip = (input: number, output: number) => Math.max(0, input - output);
     const calcEff = (input: number, output: number) => Math.round((output / (input || 1)) * 100) || 0;
 
     return {
-      cutting: { ...stats.cutting, wip: calcWip(stats.cutting.input, stats.cutting.output), eff: calcEff(stats.cutting.input, stats.cutting.output) },
-      sewing: { ...stats.sewing, wip: calcWip(stats.sewing.input, stats.sewing.output), eff: calcEff(stats.sewing.input, stats.sewing.output) },
-      wash: { ...stats.wash, wip: calcWip(stats.wash.input, stats.wash.output), eff: calcEff(stats.wash.input, stats.wash.output) },
-      finishing: { ...stats.finishing, wip: calcWip(stats.finishing.input, stats.finishing.output), eff: calcEff(stats.finishing.input, stats.finishing.output) },
+      cutting: { ...stats.cutting, wip: Math.max(0, totalWip.cutting), eff: calcEff(stats.cutting.input, stats.cutting.output) },
+      sewing: { ...stats.sewing, wip: Math.max(0, totalWip.sewing), eff: calcEff(stats.sewing.input, stats.sewing.output) },
+      wash: { ...stats.wash, wip: Math.max(0, totalWip.wash), eff: calcEff(stats.wash.input, stats.wash.output) },
+      finishing: { ...stats.finishing, wip: Math.max(0, totalWip.finishing), eff: calcEff(stats.finishing.input, stats.finishing.output) },
       totalRejections: stats.totalRejections,
       filteredRejections
     };
@@ -1683,22 +1654,43 @@ const App: React.FC = () => {
     const linesCount = performanceView === 'Sewing' ? 15 : 10;
     return Array.from({ length: linesCount }, (_, i) => {
       const lineName = `Line-${i + 1}`;
-      const lineOrders = dbOrders.filter(o => {
+      
+      // Filtered data for input/output summary
+      const filteredLineOrders = dbOrders.filter(o => {
         const orderDate = o.created_at ? new Date(o.created_at).toLocaleDateString('en-CA') : null;
         return o.line === lineName && orderDate && orderDate >= dashboardStartDate && orderDate <= dashboardEndDate;
       });
-      
-      let input = 0, output = 0, rejections = 0;
-      if (performanceView === 'Sewing') {
-        input = lineOrders.reduce((sum, o) => sum + (o.sew_in || 0), 0);
-        output = lineOrders.reduce((sum, o) => sum + (o.sew_out || 0), 0);
-      } else {
-        input = lineOrders.reduce((sum, o) => sum + (o.fin_in || 0), 0);
-        output = lineOrders.reduce((sum, o) => sum + (o.fin_out || 0), 0);
-      }
-      rejections = lineOrders.reduce((sum, o) => sum + (o.total_rejections || 0), 0);
 
-      return { line: lineName, input, output, rejections, wip: Math.max(0, input - output), status: output > 0 ? 'Active' : 'Idle' };
+      // Global data for WIP calculation (no date filter)
+      const allLineOrders = dbOrders.filter(o => o.line === lineName);
+      
+      let input = 0, output = 0, rejections = 0, totalWip = 0;
+      
+      if (performanceView === 'Sewing') {
+        input = filteredLineOrders.reduce((sum, o) => sum + (o.sew_in || 0), 0);
+        output = filteredLineOrders.reduce((sum, o) => sum + (o.sew_out || 0), 0);
+        
+        const globalIn = allLineOrders.reduce((sum, o) => sum + (o.sew_in || 0), 0);
+        const globalOut = allLineOrders.reduce((sum, o) => sum + (o.sew_out || 0), 0);
+        totalWip = Math.max(0, globalIn - globalOut);
+      } else {
+        input = filteredLineOrders.reduce((sum, o) => sum + (o.fin_in || 0), 0);
+        output = filteredLineOrders.reduce((sum, o) => sum + (o.fin_out || 0), 0);
+
+        const globalIn = allLineOrders.reduce((sum, o) => sum + (o.fin_in || 0), 0);
+        const globalOut = allLineOrders.reduce((sum, o) => sum + (o.fin_out || 0), 0);
+        totalWip = Math.max(0, globalIn - globalOut);
+      }
+      rejections = filteredLineOrders.reduce((sum, o) => sum + (o.total_rejections || 0), 0);
+
+      return { 
+        line: lineName, 
+        input, 
+        output, 
+        rejections, 
+        wip: totalWip, 
+        status: output > 0 ? 'Active' : 'Idle' 
+      };
     });
   }, [dbOrders, performanceView, dashboardStartDate, dashboardEndDate]);
 
@@ -2321,7 +2313,7 @@ const App: React.FC = () => {
               <div className="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center text-white shadow-lg shadow-indigo-200">
                 <QrCode size={24} />
               </div>
-              <h2 className="text-3xl font-black text-slate-900 tracking-tight uppercase">Generate Bundle QR</h2>
+              <h2 className="text-3xl font-black text-slate-900 tracking-tight uppercase">Generate QR CODE</h2>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8 text-left mb-12">
@@ -2576,7 +2568,7 @@ const App: React.FC = () => {
                 )}
               >
                 <QrCode size={20} className="group-hover:rotate-12 transition-transform" />
-                Bundle QR
+                QR CODE
               </button>
               <button 
                 onClick={handleGeneratePcsQR}
@@ -2610,72 +2602,95 @@ const App: React.FC = () => {
                 <div className="flex justify-between items-end px-4">
                   <div>
                     <h3 className="text-2xl font-black text-slate-900 uppercase">Generated Bundles</h3>
-                    <p className="text-slate-400 font-bold text-xs uppercase tracking-widest mt-1">Total {generatedBundles.length} bundles created</p>
+                    <p className="text-slate-400 font-bold text-xs uppercase tracking-widest mt-1">Total {generatedBundles.length} records created</p>
                   </div>
+                  <button 
+                    onClick={() => window.print()}
+                    className="flex items-center gap-2 px-8 py-4 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase hover:bg-indigo-700 transition-all shadow-lg active:scale-95 no-print"
+                  >
+                    <Printer size={16} />
+                    Print All
+                  </button>
                 </div>
 
-                <div id="qr-bundles-container" ref={qrContainerRef} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 print:grid-cols-2 bg-white p-4 rounded-[2rem]">
+                <div id="qr-bundles-container" ref={qrContainerRef} className={cn(
+                  "bg-white p-4 rounded-[2rem] gap-8 print:gap-2",
+                  generatedBundles[0]?.isPcsQR 
+                    ? "flex flex-wrap items-start justify-start print:block" 
+                    : "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 print:grid-cols-2"
+                )}>
                   {generatedBundles.map((bundle, idx) => (
-                    <div key={idx} className="bg-white p-6 rounded-[2rem] shadow-xl border border-slate-100 flex flex-col items-center space-y-6 print:shadow-none print:border print:rounded-none break-inside-avoid">
-                      <div className="p-4 bg-white border-2 border-slate-100 rounded-2xl shadow-inner">
+                    bundle.isPcsQR ? (
+                      <div key={idx} className="pcs-qr-card bg-white p-1 flex items-center justify-center break-inside-avoid print:inline-flex">
                         <QRCodeSVG 
                           value={bundle.qrData} 
-                          size={180}
+                          size={70}
                           level="H"
-                          includeMargin={true}
+                          includeMargin={false}
                         />
                       </div>
-                      
-                      <div className="w-full border-t-2 border-slate-100 pt-6 space-y-1">
-                        <div className="flex justify-between items-center bg-slate-50 px-4 py-2 rounded-xl">
-                          <span className="text-[9px] font-black text-slate-400 uppercase">ID</span>
-                          <span className="text-[11px] font-black text-slate-900 tabular-nums">{bundle.id}</span>
+                    ) : (
+                      <div key={idx} className="bg-white p-6 rounded-[2rem] shadow-xl border border-slate-100 flex flex-col items-center space-y-6 print:shadow-none print:border print:rounded-none break-inside-avoid">
+                        <div className="p-4 bg-white border-2 border-slate-100 rounded-2xl shadow-inner">
+                          <QRCodeSVG 
+                            value={bundle.qrData} 
+                            size={180}
+                            level="H"
+                            includeMargin={true}
+                          />
                         </div>
-                        <div className="grid grid-cols-2 gap-1">
-                          <div className="flex flex-col bg-slate-50 p-3 rounded-xl">
-                            <span className="text-[8px] font-black text-slate-400 uppercase mb-1">Buyer</span>
-                            <span className="text-[10px] font-black text-slate-900 truncate">{bundle.buyer || '-'}</span>
+                        
+                        <div className="w-full border-t-2 border-slate-100 pt-6 space-y-1">
+                          <div className="flex justify-between items-center bg-slate-50 px-4 py-2 rounded-xl">
+                            <span className="text-[9px] font-black text-slate-400 uppercase">ID</span>
+                            <span className="text-[11px] font-black text-slate-900 tabular-nums">{bundle.id}</span>
                           </div>
-                          <div className="flex flex-col bg-slate-50 p-3 rounded-xl">
-                            <span className="text-[8px] font-black text-slate-400 uppercase mb-1">Style</span>
-                            <span className="text-[10px] font-black text-slate-900 truncate">{bundle.style}</span>
+                          <div className="grid grid-cols-2 gap-1">
+                            <div className="flex flex-col bg-slate-50 p-3 rounded-xl">
+                              <span className="text-[8px] font-black text-slate-400 uppercase mb-1">Buyer</span>
+                              <span className="text-[10px] font-black text-slate-900 truncate">{bundle.buyer || '-'}</span>
+                            </div>
+                            <div className="flex flex-col bg-slate-50 p-3 rounded-xl">
+                              <span className="text-[8px] font-black text-slate-400 uppercase mb-1">Style</span>
+                              <span className="text-[10px] font-black text-slate-900 truncate">{bundle.style}</span>
+                            </div>
+                            <div className="flex flex-col bg-slate-50 p-3 rounded-xl">
+                              <span className="text-[8px] font-black text-slate-400 uppercase mb-1">PO</span>
+                              <span className="text-[10px] font-black text-slate-900 truncate">{bundle.po}</span>
+                            </div>
+                            <div className="flex flex-col bg-slate-50 p-3 rounded-xl">
+                              <span className="text-[8px] font-black text-slate-400 uppercase mb-1">Color</span>
+                              <span className="text-[10px] font-black text-slate-900 truncate">{bundle.color || '-'}</span>
+                            </div>
+                            <div className="flex flex-col bg-slate-50 p-3 rounded-xl">
+                              <span className="text-[8px] font-black text-slate-400 uppercase mb-1">Size</span>
+                              <span className="text-[10px] font-black text-slate-900 truncate">{bundle.size || '-'}</span>
+                            </div>
+                            <div className="flex flex-col bg-slate-50 p-3 rounded-xl">
+                              <span className="text-[8px] font-black text-slate-400 uppercase mb-1">B. Qty</span>
+                              <span className="text-[10px] font-black text-indigo-600">{bundle.bundle_qty}</span>
+                            </div>
                           </div>
-                          <div className="flex flex-col bg-slate-50 p-3 rounded-xl">
-                            <span className="text-[8px] font-black text-slate-400 uppercase mb-1">PO</span>
-                            <span className="text-[10px] font-black text-slate-900 truncate">{bundle.po}</span>
-                          </div>
-                          <div className="flex flex-col bg-slate-50 p-3 rounded-xl">
-                            <span className="text-[8px] font-black text-slate-400 uppercase mb-1">Color</span>
-                            <span className="text-[10px] font-black text-slate-900 truncate">{bundle.color || '-'}</span>
-                          </div>
-                          <div className="flex flex-col bg-slate-50 p-3 rounded-xl">
-                            <span className="text-[8px] font-black text-slate-400 uppercase mb-1">Size</span>
-                            <span className="text-[10px] font-black text-slate-900 truncate">{bundle.size || '-'}</span>
-                          </div>
-                          <div className="flex flex-col bg-slate-50 p-3 rounded-xl">
-                            <span className="text-[8px] font-black text-slate-400 uppercase mb-1">B. Qty</span>
-                            <span className="text-[10px] font-black text-indigo-600">{bundle.bundle_qty}</span>
+                          <div className="flex justify-between items-center bg-slate-900 px-4 py-3 rounded-xl mt-2">
+                            <span className="text-[8px] font-black text-slate-400 uppercase">Size Qty</span>
+                            <span className="text-[11px] font-black text-white tabular-nums">{bundle.po_qty || '-'}</span>
                           </div>
                         </div>
-                        <div className="flex justify-between items-center bg-slate-900 px-4 py-3 rounded-xl mt-2">
-                          <span className="text-[8px] font-black text-slate-400 uppercase">Size Qty</span>
-                          <span className="text-[11px] font-black text-white tabular-nums">{bundle.po_qty || '-'}</span>
-                        </div>
-                      </div>
 
-                      <div className="flex gap-2 w-full no-print">
-                        <button 
-                          onClick={() => {
-                            navigator.clipboard.writeText(bundle.id);
-                            setScanStatus({ message: 'Bundle ID Copied', type: 'success' });
-                          }}
-                          className="flex-1 bg-slate-50 text-slate-400 p-3 rounded-xl hover:bg-indigo-50 hover:text-indigo-600 transition-all flex items-center justify-center gap-2 text-[9px] font-black uppercase"
-                        >
-                          <Copy size={12} />
-                          Copy ID
-                        </button>
+                        <div className="flex gap-2 w-full no-print">
+                          <button 
+                            onClick={() => {
+                              navigator.clipboard.writeText(bundle.id);
+                              setScanStatus({ message: 'Bundle ID Copied', type: 'success' });
+                            }}
+                            className="flex-1 bg-slate-50 text-slate-400 p-3 rounded-xl hover:bg-indigo-50 hover:text-indigo-600 transition-all flex items-center justify-center gap-2 text-[9px] font-black uppercase"
+                          >
+                            <Copy size={12} />
+                            Copy ID
+                          </button>
+                        </div>
                       </div>
-                    </div>
+                    )
                   ))}
                 </div>
               </div>
@@ -3304,6 +3319,8 @@ const App: React.FC = () => {
                       {Array.from({ length: 10 }).map((_, i) => <option key={`mx-${i}`} value={`MX-M/C-${i+1}`}>MX-M/C-{i+1}</option>)}
                       {Array.from({ length: 20 }).map((_, i) => <option key={`pwt-${i}`} value={`PWT-M/C-${i+1}`}>PWT-M/C-{i+1}</option>)}
                     </>
+                  ) : selectedProcess.includes('Finishing') ? (
+                    Array.from({ length: 10 }).map((_, i) => <option key={i} value={`Line-${i+1}`}>Line {i+1}</option>)
                   ) : (
                     Array.from({ length: 15 }).map((_, i) => <option key={i} value={`Line-${i+1}`}>Line {i+1}</option>)
                   )}
