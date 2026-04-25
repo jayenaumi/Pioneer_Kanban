@@ -1,16 +1,14 @@
 
 import React, { useState } from 'react';
-import { supabase } from '../services/supabase';
+import { supabase, isSupabaseConfigured } from '../services/supabase';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Building2, 
   Mail, 
   Lock, 
-  User, 
   ArrowRight, 
   Loader2, 
   AlertCircle,
-  CheckCircle2,
   X
 } from 'lucide-react';
 
@@ -41,10 +39,8 @@ interface AuthProps {
 
 const Auth: React.FC<AuthProps> = ({ onSuccess }) => {
   const [selectedFactory, setSelectedFactory] = useState<typeof FACTORIES[0] | null>(null);
-  const [isLogin, setIsLogin] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -56,43 +52,37 @@ const Auth: React.FC<AuthProps> = ({ onSuccess }) => {
     e.preventDefault();
     setIsLoading(true);
     setError(null);
-    setSuccess(null);
+
+    if (!isSupabaseConfigured) {
+      // Mock success for preview purposes if not configured
+      setIsLoading(false);
+      onSuccess({
+        id: 'mock-user',
+        email: formData.email,
+        user_metadata: { 
+          full_name: formData.name || 'Mock User',
+          factory: selectedFactory?.name || 'Pioneer Apparels Limited'
+        }
+      });
+      return;
+    }
 
     try {
-      if (isLogin) {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: formData.email,
-          password: formData.password,
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: formData.email,
+        password: formData.password,
+      });
+
+      if (error) throw error;
+
+      // Ensure user metadata matches the factory they selected at login
+      if (selectedFactory) {
+        const { data: updatedData } = await supabase.auth.updateUser({
+          data: { factory: selectedFactory.name }
         });
-
-        if (error) throw error;
-
-        // Ensure user metadata matches the factory they selected at login
-        if (selectedFactory) {
-          const { data: updatedData } = await supabase.auth.updateUser({
-            data: { factory: selectedFactory.name }
-          });
-          onSuccess(updatedData.user || data.user);
-        } else {
-          onSuccess(data.user);
-        }
+        onSuccess(updatedData.user || data.user);
       } else {
-        const { data, error } = await supabase.auth.signUp({
-          email: formData.email,
-          password: formData.password,
-          options: {
-            data: {
-              full_name: formData.name,
-              factory: selectedFactory?.name
-            }
-          }
-        });
-
-        if (error) throw error;
-        if (data.user) {
-          setSuccess('Account created! Please check your email for verification if required.');
-          setIsLogin(true);
-        }
+        onSuccess(data.user);
       }
     } catch (err: any) {
       if (err.message === 'Failed to fetch') {
@@ -191,127 +181,87 @@ const Auth: React.FC<AuthProps> = ({ onSuccess }) => {
               initial={{ opacity: 0, scale: 0.95, y: 40 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 40 }}
-              className="relative w-full max-w-xl bg-white rounded-[3rem] shadow-3xl overflow-hidden border border-slate-100"
+              className="relative w-full max-w-md bg-white rounded-[2.5rem] shadow-3xl overflow-hidden border border-slate-100"
             >
               {/* Modal Header */}
-              <div className="relative p-10 bg-slate-50 border-b border-slate-100">
+              <div className="relative p-8 bg-slate-50 border-b border-slate-100">
                 <button 
                   onClick={() => setSelectedFactory(null)}
-                  className="absolute top-8 right-8 text-slate-400 hover:text-slate-900 transition-colors"
+                  className="absolute top-6 right-6 text-slate-400 hover:text-slate-900 transition-colors"
                 >
-                  <X size={24} />
+                  <X size={20} />
                 </button>
                 
-                <div className={`w-14 h-14 bg-${selectedFactory.color}-50 rounded-2xl flex items-center justify-center text-${selectedFactory.color}-600 mb-6 border border-${selectedFactory.color}-100`}>
-                  <Building2 size={28} />
+                <div className={`w-12 h-12 bg-${selectedFactory.color}-50 rounded-xl flex items-center justify-center text-${selectedFactory.color}-600 mb-4 border border-${selectedFactory.color}-100`}>
+                  <Building2 size={24} />
                 </div>
                 
-                <h3 className="text-3xl font-black text-slate-900 tracking-tighter leading-tight">
+                <h3 className="text-2xl font-black text-slate-900 tracking-tighter leading-tight">
                   {selectedFactory.name}
                 </h3>
-                <p className="text-slate-500 font-bold uppercase text-[10px] tracking-widest mt-2 overflow-hidden text-ellipsis whitespace-nowrap">
+                <p className="text-slate-500 font-bold uppercase text-[9px] tracking-widest mt-1 overflow-hidden text-ellipsis whitespace-nowrap">
                   Manufacturing Plant Access
                 </p>
               </div>
 
               {/* Form Area */}
-              <div className="p-10">
+              <div className="p-8">
                 {error && (
                   <motion.div 
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    className="mb-8 p-4 bg-rose-50 border border-rose-100 rounded-2xl flex items-center space-x-3 text-rose-600 font-black text-[10px] uppercase tracking-wider"
+                    className="mb-6 p-3 bg-rose-50 border border-rose-100 rounded-xl flex items-center space-x-3 text-rose-600 font-black text-[9px] uppercase tracking-wider"
                   >
-                    <AlertCircle size={18} />
+                    <AlertCircle size={16} />
                     <span>{error}</span>
                   </motion.div>
                 )}
                 
-                {success && (
-                  <motion.div 
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="mb-8 p-4 bg-emerald-50 border border-emerald-100 rounded-2xl flex items-center space-x-3 text-emerald-600 font-black text-[10px] uppercase tracking-wider"
-                  >
-                    <CheckCircle2 size={18} />
-                    <span>{success}</span>
-                  </motion.div>
-                )}
-
-                <form onSubmit={handleSubmit} className="space-y-6">
-                  {!isLogin && (
-                    <div className="group">
-                      <label className="text-[10px] font-black uppercase text-slate-400 mb-2 block ml-1 tracking-widest">User Name</label>
-                      <div className="relative">
-                        <User className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-blue-600 transition-colors" size={18} />
-                        <input 
-                          type="text"
-                          required
-                          value={formData.name}
-                          onChange={(e) => setFormData({...formData, name: e.target.value})}
-                          placeholder="Your full name"
-                          className="w-full bg-slate-50 border-2 border-slate-100 rounded-[1.5rem] pl-16 pr-8 py-5 text-sm font-bold text-slate-900 outline-none focus:border-blue-600 focus:bg-white transition-all placeholder:text-slate-300"
-                        />
-                      </div>
-                    </div>
-                  )}
-
+                <form onSubmit={handleSubmit} className="space-y-5">
                   <div className="group">
-                    <label className="text-[10px] font-black uppercase text-slate-400 mb-2 block ml-1 tracking-widest">Corporate Email</label>
+                    <label className="text-[9px] font-black uppercase text-slate-400 mb-2 block ml-1 tracking-widest">Corporate Email</label>
                     <div className="relative">
-                      <Mail className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-blue-600 transition-colors" size={18} />
+                      <Mail className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-blue-600 transition-colors" size={16} />
                       <input 
                         type="email"
                         required
                         value={formData.email}
                         onChange={(e) => setFormData({...formData, email: e.target.value})}
                         placeholder="email@pioneer-group.com"
-                        className="w-full bg-slate-50 border-2 border-slate-100 rounded-[1.5rem] pl-16 pr-8 py-5 text-sm font-bold text-slate-900 outline-none focus:border-blue-600 focus:bg-white transition-all placeholder:text-slate-300"
+                        className="w-full bg-slate-50 border-2 border-slate-100 rounded-[1.2rem] pl-14 pr-6 py-4 text-sm font-bold text-slate-900 outline-none focus:border-blue-600 focus:bg-white transition-all placeholder:text-slate-300"
                       />
                     </div>
                   </div>
 
                   <div className="group">
-                    <label className="text-[10px] font-black uppercase text-slate-400 mb-2 block ml-1 tracking-widest">Security Password</label>
+                    <label className="text-[9px] font-black uppercase text-slate-400 mb-2 block ml-1 tracking-widest">Security Password</label>
                     <div className="relative">
-                      <Lock className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-blue-600 transition-colors" size={18} />
+                      <Lock className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-blue-600 transition-colors" size={16} />
                       <input 
                         type="password"
                         required
                         value={formData.password}
                         onChange={(e) => setFormData({...formData, password: e.target.value})}
                         placeholder="••••••••"
-                        className="w-full bg-slate-50 border-2 border-slate-100 rounded-[1.5rem] pl-16 pr-8 py-5 text-sm font-bold text-slate-900 outline-none focus:border-blue-600 focus:bg-white transition-all placeholder:text-slate-300"
+                        className="w-full bg-slate-50 border-2 border-slate-100 rounded-[1.2rem] pl-14 pr-6 py-4 text-sm font-bold text-slate-900 outline-none focus:border-blue-600 focus:bg-white transition-all placeholder:text-slate-300"
                       />
                     </div>
                   </div>
 
                   <button
                     disabled={isLoading}
-                    className="w-full bg-slate-900 text-white py-6 rounded-[2rem] font-black uppercase tracking-[0.2em] text-xs shadow-xl shadow-slate-200 hover:bg-blue-600 hover:shadow-blue-200 transition-all active:scale-[0.98] flex items-center justify-center space-x-3"
+                    className="w-full bg-slate-900 text-white py-5 rounded-[1.5rem] font-black uppercase tracking-[0.2em] text-[10px] shadow-xl shadow-slate-200 hover:bg-blue-600 hover:shadow-blue-200 transition-all active:scale-[0.98] flex items-center justify-center space-x-2"
                   >
                     {isLoading ? (
-                      <Loader2 className="animate-spin" size={18} />
+                      <Loader2 className="animate-spin" size={16} />
                     ) : (
                       <>
-                        <span>{isLogin ? 'Grant Access' : 'Register Account'}</span>
-                        <ArrowRight size={16} />
+                        <span>Grant Access</span>
+                        <ArrowRight size={14} />
                       </>
                     )}
                   </button>
                 </form>
-
-                <div className="mt-10 text-center">
-                  <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest">
-                    {isLogin ? "Don't have an account?" : "Already registered?"}
-                    <button 
-                      onClick={() => setIsLogin(!isLogin)}
-                      className="ml-2 text-blue-600 hover:text-blue-700 transition-colors"
-                    >
-                      {isLogin ? 'Sign Up' : 'Sign In'}
-                    </button>
-                  </p>
-                </div>
               </div>
             </motion.div>
           </div>

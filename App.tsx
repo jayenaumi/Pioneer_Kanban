@@ -568,6 +568,19 @@ const App: React.FC = () => {
   const fetchData = async () => {
     if (!user) return;
     setIsLoading(true);
+
+    if (!isSupabaseConfigured) {
+      // Provide mock data for preview if not configured
+      setDbOrders([
+        { id: 1, bundle_id: 'BND-001', buyer: 'MOCK', style: 'DEMO-1', po: 'PO-101', color: 'RED', size: 'M', po_quantity: 1000, cutting_in: 200, created_at: new Date().toISOString(), factory_name: 'Pioneer Apparels Limited' },
+        { id: 2, bundle_id: 'BND-002', buyer: 'MOCK', style: 'DEMO-1', po: 'PO-101', color: 'BLUE', size: 'L', po_quantity: 1000, cutting_in: 300, created_at: new Date().toISOString(), factory_name: 'Pioneer Apparels Limited' }
+      ]);
+      setDbRejections([]);
+      setDbOrderInfo([]);
+      setIsLoading(false);
+      return;
+    }
+
     try {
       const userFactory = user.user_metadata?.factory;
 
@@ -647,6 +660,11 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const checkSession = async () => {
+      if (!isSupabaseConfigured) {
+        setAuthLoading(false);
+        return;
+      }
+
       try {
         const { data: { session }, error } = await supabase.auth.getSession();
         
@@ -685,33 +703,37 @@ const App: React.FC = () => {
       }
     };
 
-    checkSession();
+    if (isSupabaseConfigured) {
+      checkSession();
 
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log("Auth Event:", event);
-      
-      if (event === 'SIGNED_OUT') {
-        setUser(null);
-      } else if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') {
-        setUser(session?.user ?? null);
-      } else if (event === 'USER_UPDATED') {
-        setUser(session?.user ?? null);
-      }
-      
-      // Handle the case where refresh fails during a session change
-      if (!session && event !== 'SIGNED_OUT') {
-        setUser(null);
-      }
-    });
+      // Listen for auth changes
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+        console.log("Auth Event:", event);
+        
+        if (event === 'SIGNED_OUT') {
+          setUser(null);
+        } else if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') {
+          setUser(session?.user ?? null);
+        } else if (event === 'USER_UPDATED') {
+          setUser(session?.user ?? null);
+        }
+        
+        // Handle the case where refresh fails during a session change
+        if (!session && event !== 'SIGNED_OUT') {
+          setUser(null);
+        }
+      });
 
-    return () => {
-      subscription.unsubscribe();
-    };
+      return () => {
+        subscription.unsubscribe();
+      };
+    } else {
+      setAuthLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    if (user) {
+    if (user && isSupabaseConfigured) {
       fetchData();
     }
   }, [user]);
